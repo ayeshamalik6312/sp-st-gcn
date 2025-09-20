@@ -8,28 +8,25 @@ import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
-from models import SpatialVAE
-from utils import *
-from metrics import evaluate_all
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_absolute_error
 import torch.nn.functional as F
-from marker_genes import find_marker_genes, create_marker_weight_matrix
-from losses import vae_loss, weighted_reconstruction_loss, sparsity_loss
-from utils import create_pseudo_spots_torch  # add this import at top with other utils
-
 import argparse, sys, os, yaml
+
+from utils import *
+from marker_genes import *
+from losses import *
+from models import SpatialVAE
+from sklearn.preprocessing import StandardScaler
+from metrics import evaluate_all
+from sklearn.metrics import mean_absolute_error
+
 
 # ---------- helpers ----------
 def scalar(x):
-    """Return a Python float regardless of whether x is a Tensor or already a number."""
     if isinstance(x, (int, float)):
         return float(x)
     if isinstance(x, np.generic):
         return float(x)
     if torch.is_tensor(x):
-        # expect 0-dim; if not, take mean to avoid crashes
         x = x.detach()
         return x.mean().item()
     # fallback
@@ -76,10 +73,10 @@ common_genes = Y_df.columns.intersection(sc_df.columns)
 Y_df = Y_df[common_genes]
 sc_df = sc_df[list(common_genes) + ["cell_type"]]
 
-# Find marker genes BEFORE normalization (on raw counts)
+# -------------- Find marker genes -------------
 marker_dict, marker_scores = find_marker_genes(
     sc_df, 
-    n_markers_per_type=5,  # You can make this a config parameter
+    n_markers_per_type=int(float(config.get("n_markers_per_type", 4))),
     method='fold_change'
 )
 
@@ -90,7 +87,7 @@ with open(os.path.join(results_path, "marker_genes.txt"), 'w') as f:
         gene_names_list = [list(common_genes)[i] for i in indices[:5]]
         f.write(f"{ct}: {gene_names_list}\n")
         
-# normalize
+# --------------Normalize 
 scaler_Y = StandardScaler()
 Y_df[common_genes] = scaler_Y.fit_transform(Y_df[common_genes])
 scaler_X = StandardScaler()
@@ -170,14 +167,14 @@ optimizer = torch.optim.Adam(
     weight_decay=float(config["l2_lambda"])
 )
 
-# After model creation, add:
+# ---------- Marker Weight Matrix ----------
 marker_weight_matrix = create_marker_weight_matrix(
     marker_dict, 
     input_dim, 
     n_celltypes, 
     cell_type_names,
     base_weight=1.0,
-    marker_weight=2.0  
+    marker_weight=float(config.get("marker_weight", 2.0))
 ).to(device)
 
 # ---------------- Training ----------------
@@ -196,11 +193,9 @@ if config.get("use_pseudo_spots", False):
 lambda_pseudo = float(config.get("pseudo_recon_weight", 1.5))
 
 for epoch in range(config["n_epochs"]):
-    # ===== Train =====
+    # Train 
     model.train()
     optimizer.zero_grad()
-
-    # Forward pass
     Y_hat, mu, logvar, B = model(Y_train, edge_index_train, edge_weight_train, X)
 
     # ----- Reconstruction loss (real vs. pseudo, with extra weight on pseudo) -----
@@ -217,9 +212,10 @@ for epoch in range(config["n_epochs"]):
     else:
         recon_real = F.mse_loss(Y_hat[~is_pseudo], Y_train[~is_pseudo])
         recon_pseudo = F.mse_loss(Y_hat[is_pseudo], Y_train[is_pseudo]) if is_pseudo.any() \
-                       else torch.tensor(0.0, device=Y_train.device)
+                    else torch.tensor(0.0, device=Y_train.device)
 
-    recon_loss = recon_real + lambda_pseudo * recon_pseudo
+    # NORMALIZED combo so train loss is comparable to val (which has no pseudo)
+    recon_loss = (recon_real + lambda_pseudo * recon_pseudo) / (1.0 + lambda_pseudo)
 
     # KL divergence loss
     if config["loss_beta"] > 0:
@@ -244,11 +240,21 @@ for epoch in range(config["n_epochs"]):
         sparsity_weight=config.get("sparsity_weight", 0.05)
     )
 
+    # Pseudo B supervision (tiny) to improve correlations
+    if config.get("use_pseudo_spots", False) and is_pseudo.any():
+        pseudo_sup = F.mse_loss(B[is_pseudo], B_pseudo)
+    else:
+        pseudo_sup = torch.tensor(0.0, device=Y_train.device)
+
+    lambda_sup = float(config.get("pseudo_supervise_weight", 0.1))
+
     # Total loss
     total_loss = (config["loss_alpha"] * recon_loss +
-                  config["loss_beta"] * kl_loss +
-                  config["loss_delta"] * smooth_loss +
-                  sparse_loss)
+                config["loss_beta"]  * kl_loss +
+                config["loss_delta"] * smooth_loss +
+                sparse_loss +
+                lambda_sup           * pseudo_sup)
+
 
     total_loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -301,8 +307,7 @@ for epoch in range(config["n_epochs"]):
 
         val_loss_history.append(scalar(val_loss))
 
-    # ===== Logging every 20 epochs =====
-    if (epoch + 1) % 20 == 0:
+    if (epoch + 1) % 25 == 0:
         with torch.no_grad():
             z_mean = scalar(mu_val.mean())
             z_std = scalar(torch.exp(0.5 * logvar_val).mean())
@@ -310,15 +315,21 @@ for epoch in range(config["n_epochs"]):
             B_entropy = scalar((-(B_val * torch.log(B_val + eps)).sum(dim=1)).mean())
             B_max = scalar(B_val.max(dim=1)[0].mean())
 
+        recon_real_s   = scalar(recon_real)
+        recon_pseudo_s = scalar(recon_pseudo)
+        pseudo_sup_s = scalar(pseudo_sup)
+
         print(
             f"Epoch {epoch+1:03d} "
             f"| Train: total={scalar(total_loss):.4f}, recon={scalar(recon_loss):.4f}, kl={scalar(kl_loss):.4f}, smooth={scalar(smooth_loss):.4f}, sparse={scalar(sparse_loss):.4f} "
-            f"| Val: total={scalar(val_loss):.4f}, recon={scalar(val_recon):.4f}, kl={scalar(val_kl):.4f}, smooth={scalar(val_smooth):.4f}, sparse={scalar(val_sparse):.4f} "
-            f"| Latent μ={z_mean:.4f}, σ={z_std:.4f} | Pred entropy={B_entropy:.4f}, max_prop={B_max:.4f}"
+            f"\n Val: total={scalar(val_loss):.4f}, recon={scalar(val_recon):.4f}, kl={scalar(val_kl):.4f}, smooth={scalar(val_smooth):.4f}, sparse={scalar(val_sparse):.4f} "
+            f"\n Latent μ={z_mean:.4f}, σ={z_std:.4f} | Pred entropy={B_entropy:.4f}, max_prop={B_max:.4f}"
+            f"\n recon_real={recon_real_s:.4f}, recon_pseudo={recon_pseudo_s:.4f}, pseudo_sup={pseudo_sup_s:.6f,}"
+            f"\n"
         )
 
-    # ===== Early stopping =====
-    if scalar(val_loss) < scalar(best_val_loss):
+    # Early stopping
+    if val_loss < best_val_loss:
         best_val_loss, patience_counter = val_loss, 0
         best_state = model.state_dict()
     else:
@@ -361,10 +372,9 @@ for k, v in results.items():
 
 # ----- Per-cell-type analysis -----
 def per_celltype_analysis(G_true, B_pred, cell_type_names):
-    print("\nDetailed Per-Cell-Type Performance:")
+    print("\nPer-Cell-Type Performance:")
     for i, ct in enumerate(cell_type_names):
         mae_ct = mean_absolute_error(G_true[:, i], B_pred[:, i])
-        # correlation can be NaN if the variance is zero; guard it
         if np.std(G_true[:, i]) == 0 or np.std(B_pred[:, i]) == 0:
             corr_ct = 0.0
         else:

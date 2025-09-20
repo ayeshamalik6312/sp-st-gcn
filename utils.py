@@ -79,7 +79,7 @@ def draw_pie_hex_grid(df, cell_types, colors, coords_df, save_path, title="Spati
 
 @torch.no_grad()
 def create_pseudo_spots_torch(
-    X_ref,                     # [n_celltypes, n_genes] torch.FloatTensor
+    X_ref,                    
     n_spots=1000,
     max_types=3,
     noise_sigma=0.1,
@@ -87,17 +87,9 @@ def create_pseudo_spots_torch(
     seed=None,
     device=None
 ):
-    """
-    Create synthetic spots as convex mixtures of rows from X_ref.
 
-    Returns:
-        Y_pseudo: [n_spots, n_genes]
-        B_pseudo: [n_spots, n_celltypes]
-    """
     if device is None:
         device = X_ref.device
-
-    # IMPORTANT: use a CPU generator to avoid the "Expected 'cpu' device type for generator" error.
     gen = torch.Generator(device='cpu')
     if seed is not None:
         gen.manual_seed(int(seed))
@@ -112,7 +104,7 @@ def create_pseudo_spots_torch(
 
         # Dirichlet proportions on the same device as X_ref
         alpha = torch.full((n_types,), float(dirichlet_alpha), device=device)
-        props = torch.distributions.Dirichlet(alpha).sample()  # no generator arg here
+        props = torch.distributions.Dirichlet(alpha).sample()  
 
         # Full-length B row
         B_i = torch.zeros(n_celltypes, device=device)

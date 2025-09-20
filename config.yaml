@@ -1,8 +1,14 @@
 # paths
 st_data_dir: "/home/ayesha/SP-VAE-GCN/data/seqFISH/ours/ST_data"
 sc_data_dir: "/home/ayesha/SP-VAE-GCN/data/seqFISH/ours/sc_data"
-
 results_path: "/home/ayesha/SP-VAE-GCN/results2"
+
+# st_data_dir: "/home/ayesha/SP-VAE-GCN/data/MERFISH/ours/ST_data"
+# sc_data_dir: "/home/ayesha/SP-VAE-GCN/data/MERFISH/ours/sc_data"
+
+# st_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"
+# sc_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data/"
+# results_path: "/data/alif/sp_vae_gcn/results/seqFISH+/"
 
 # preprocessing
 split_seed: 1951
@@ -40,17 +46,14 @@ sparsity_type: "entropy"  # "l1", "entropy", or "both"
 target_entropy: 2.0  # Target entropy for ~3 dominant cell types
 
 # Pseudo-spot settings
-# Pseudo-spot settings
 use_pseudo_spots: true
 pseudo_n_spots: 4000
 pseudo_max_types: 3
 pseudo_noise_sigma: 0.1
 pseudo_dirichlet_alpha: 1.0
-pseudo_proportion_weight: 2.0  # Weight for supervised B loss
-pseudo_recon_weight: 1.0       # Weight for pseudo reconstruction
+pseudo_recon_weight: 0.5      
+pseudo_supervise_weight: 2.0  
 pseudo_seed: 42
-pseudo_bridge_k: 3
-pseudo_bridge_weight: 0.05
 
 # visualization
 # plot_sets: ["train", "val", "test", "all"]   # options: any subset of ["train", "val", "test", "all"]

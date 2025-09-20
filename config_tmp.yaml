@@ -6,7 +6,7 @@ split_size: 0.2
 val_size: 0.1
 adjacency_threshold: 1e-1
 adjacency_sigma: 1.0
-hidden_dim: 256
+hidden_dim: 128
 latent_dim: 32
 tau: 0.5
 dropout_rate: 0.2
@@ -16,8 +16,8 @@ l2_lambda: 1e-4
 patience: 20
 loss_alpha: 0.9
 loss_beta: 0.0
-loss_gamma: 0.0
-loss_delta: 0.9
+loss_gamma: 0.2
+loss_delta: 0.1
 n_markers_per_type: 5
 marker_weight: 1.8
 use_weighted_recon: true
@@ -29,9 +29,7 @@ pseudo_n_spots: 4000
 pseudo_max_types: 3
 pseudo_noise_sigma: 0.1
 pseudo_dirichlet_alpha: 1.0
-pseudo_proportion_weight: 2.0
-pseudo_recon_weight: 1.0
+pseudo_recon_weight: 0.5
+pseudo_supervise_weight: 2.0
 pseudo_seed: 42
-pseudo_bridge_k: 3
-pseudo_bridge_weight: 0.05
 plot_sets: []
