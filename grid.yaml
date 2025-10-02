@@ -1,0 +1,14 @@
+# grid.yaml — edit to taste
+split_seed: [8086]  # keep singleton to hold constant
+adjacency_threshold: [1e-1, 1e-2]
+adjacency_sigma: [1.0, 2.0]
+hidden_dim: [128, 256]
+latent_dim: [16, 32]
+tau: [0.5]          # keep singleton to hold constant
+dropout_rate: [0.2] # "
+lr: [1e-4, 5e-5]
+loss_alpha: [0.3, 0.5, 0.7, 0.9, 1.0]
+loss_beta: [0.0, 0.2, 0.5, 0.8, 1.0]
+loss_gamma: [0.0, 0.2, 0.5, 0.8, 1.0]
+loss_delta: [0.0, 0.2, 0.5, 0.8, 1.0]
+plot_sets: [[]]     # disable plotting in sweeps

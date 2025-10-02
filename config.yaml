@@ -1,0 +1,43 @@
+# paths
+#st_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"
+#sc_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data/"
+#results_path: "/data/alif/sp_vae_gcn/results/seqFISH+/"
+
+st_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/ST_data"
+sc_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/sc_data"
+results_path: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/results"
+
+# preprocessing
+split_seed: 1951
+split_size: 0.2
+val_size: 0.1
+adjacency_threshold: 1e-1
+adjacency_sigma: 2.0
+
+# model
+hidden_dim: 128
+latent_dim: 32
+tau: 0.5
+dropout_rate: 0.2
+
+# training
+n_epochs: 300
+lr: 1e-4
+l2_lambda: 1e-4
+patience: 20
+
+# loss weights
+loss_alpha: 0.5
+loss_beta: 0.2
+loss_gamma: 0.0
+loss_delta: 0.2
+
+# Marker gene settings
+n_markers_per_type: 4
+marker_weight: 1.8
+use_weighted_recon: true
+find_marker_method: 'fold_change'
+
+# visualization
+# plot_sets: ["train", "val", "test", "all"]   # options: any subset of ["train", "val", "test", "all"]
+plot_sets: [""]   # options: any subset of ["train", "val", "test", "all"]
