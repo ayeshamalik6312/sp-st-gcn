@@ -1,19 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-print("Importing Libraries...")
 import os
 import time
 import yaml
-import scanpy as sc
 import torch
+import pandas as pd
+import scanpy as sc
 import argparse, sys
 import numpy as np, random
-import pandas as pd
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
-from pathlib import Path
 from utils import *
 from data_integration import *
+from pathlib import Path
 from models import SpatialVAE
 from losses import vae_loss
 from metrics import evaluate_all
@@ -56,6 +56,7 @@ sc_df = pd.read_csv(os.path.join(sc_data_dir, "sc_data.tsv"), sep="\t", index_co
 labels_df = pd.read_csv(os.path.join(sc_data_dir, "sc_label.tsv"), sep="\t", index_col=0)
 sc_df = sc_df.loc[labels_df.index]
 sc_df["cell_type"] = labels_df.squeeze()
+sc_df_raw = sc_df.copy(deep=True)
 
 # align genes
 common_genes = Y_df.columns.intersection(sc_df.columns)
@@ -81,16 +82,64 @@ gene_names = [g for g in sc_df.columns if g != "cell_type"]
 selected_genes = sorted({ gene_names[i] for idxs in marker_dict.values() for i in idxs })
 selected_genes_ordered = [g for g in Y_df.columns if g in selected_genes]
 
-# ---------------- Normalize (after subsetting to markers) ----------------
-
 # subset to identified marker genes 
 Y_df  = Y_df[selected_genes_ordered]
 sc_df = sc_df[selected_genes_ordered + ["cell_type"]]
+sc_raw_markers = sc_df_raw[selected_genes_ordered].copy()    # for pseudo spots
+sc_raw_markers["cell_type"] = sc_df["cell_type"].values      # for pseudo spots
+
+# ------------- Pseudo Spot Generation -------------
+
+# build AnnData for pseudo generation
+sc_adata = sc.AnnData(
+    X=sc_raw_markers[selected_genes_ordered].values,  
+    obs=pd.DataFrame({"cell_type": sc_raw_markers["cell_type"].astype(str).values},
+                     index=sc_raw_markers.index),
+    var=pd.DataFrame(index=selected_genes_ordered)
+)
+
+cell_types = sc_adata.obs["cell_type"].unique().tolist()
+word_to_idx = {ct: i for i, ct in enumerate(cell_types)}
+idx_to_word = {i: ct for ct, i in word_to_idx.items()}
+sc_adata.obs["cell_type_idx"] = sc_adata.obs["cell_type"].map(word_to_idx).astype(int)
+
+# generate pseudo spots 
+from data_integration import pseudo_spot_generation
+pseudo_cfg = config.get("pseudo", {
+    "spot_num": 2000,
+    "min_cell_num_in_spot": 2,
+    "max_cell_num_in_spot": 8,
+    "max_cell_types_in_spot": 3,
+    "generation_method": "celltype",
+    "n_jobs": 1
+})
+pseudo_adata = pseudo_spot_generation(
+    sc_exp=sc_adata,
+    idx_to_word_celltype=idx_to_word,
+    spot_num=pseudo_cfg["spot_num"],
+    min_cell_number_in_spot=pseudo_cfg["min_cell_num_in_spot"],
+    max_cell_number_in_spot=pseudo_cfg["max_cell_num_in_spot"],
+    max_cell_types_in_spot=pseudo_cfg["max_cell_types_in_spot"],
+    generation_method=pseudo_cfg["generation_method"],
+    n_jobs=pseudo_cfg["n_jobs"]
+)
+
+Y_pseudo_raw = pd.DataFrame(pseudo_adata.X,
+                            index=pseudo_adata.obs_names,
+                            columns=pseudo_adata.var_names)[selected_genes_ordered]
+
+# --------------- Normalize ----------------
 
 # scale real spatial transcriptomics data 
 scaler_Y = StandardScaler()
 Y_df[selected_genes_ordered] = scaler_Y.fit_transform(Y_df[selected_genes_ordered])
-m = Y_df.mean().abs().mean(); s = Y_df.std().mean()
+
+# scale pseudo spots
+Y_pseudo = pd.DataFrame(
+    scaler_Y.transform(Y_pseudo_raw), 
+    index=Y_pseudo_raw.index,
+    columns=selected_genes_ordered
+)
 
 # scale single cell ref data 
 scaler_X = StandardScaler()
@@ -98,13 +147,25 @@ sc_df[selected_genes_ordered] = scaler_X.fit_transform(sc_df[selected_genes_orde
 
 X_ref_df = sc_df.groupby("cell_type").mean()
 X_ref_df[selected_genes_ordered] = scaler_X.fit_transform(X_ref_df[selected_genes_ordered])
-m = X_ref_df.mean().abs().mean(); s = X_ref_df.std().mean()
 
 assert Y_df.columns.equals(X_ref_df.columns), "ST and reference gene orders differ."
 
+cell_type_names = X_ref_df.index.tolist()
+
+# build pseudo ground truth
+B_pseudo = (
+    pseudo_adata.obs.reindex(columns=cell_type_names)  # ensures correct order
+    .fillna(0.0)
+    .astype(float)
+)
+
+# final checks
+assert Y_df.columns.equals(X_ref_df.columns), "ST and reference gene orders differ."
+assert list(Y_pseudo.columns) == list(Y_df.columns), "Pseudo/ST marker order mismatch."
+assert list(B_pseudo.columns) == list(cell_type_names), "Pseudo fraction columns mismatch."
+
 Y = torch.tensor(Y_df.values, dtype=torch.float32).to(device)
 X = torch.tensor(X_ref_df.values, dtype=torch.float32).to(device)
-cell_type_names = X_ref_df.index.tolist()
 
 print(f"Data loaded: ST spots={Y.shape[0]}, genes={Y.shape[1]}, cells={sc_df.shape[0]}, cell types={len(cell_type_names)}\n")
 

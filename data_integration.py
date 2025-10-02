@@ -152,14 +152,17 @@ def pseudo_spot_generation(sc_exp,
     
     cell_type_num = len(sc_exp.obs['cell_type'].unique())
     
-    cores = multiprocessing.cpu_count()
-    if n_jobs == -1:
-        pool = multiprocessing.Pool(processes=cores)
+    args = [(sc_exp, min_cell_number_in_spot, max_cell_number_in_spot, 
+             max_cell_types_in_spot, generation_method) for _ in range(spot_num)]
+
+    # >>> NEW: serial path to avoid multiprocessing on Windows
+    if n_jobs is None or n_jobs <= 1:
+        generated_spots = [generate_a_spot(*a) for a in tqdm(args, desc='Generating pseudo-spots')]
     else:
-        pool = multiprocessing.Pool(processes=n_jobs)
-    args = [(sc_exp, min_cell_number_in_spot, max_cell_number_in_spot, max_cell_types_in_spot, generation_method) for i in range(spot_num)]
-    generated_spots = pool.starmap(generate_a_spot, tqdm(args, desc='Generating pseudo-spots'))
-    
+        cores = multiprocessing.cpu_count() if n_jobs == -1 else n_jobs
+        with multiprocessing.Pool(processes=cores) as pool:
+            generated_spots = pool.starmap(generate_a_spot, tqdm(args, desc='Generating pseudo-spots'))
+
     pseudo_spots = []
     pseudo_spots_table = np.zeros((spot_num, sc_exp.shape[1]), dtype=float)
     pseudo_fraction_table = np.zeros((spot_num, cell_type_num), dtype=float)
