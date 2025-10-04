@@ -7,6 +7,9 @@ from torch_geometric.utils import dense_to_sparse
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
+def as_float(x):
+    return x.item() if torch.is_tensor(x) else float(x)
+
 def compute_adjacency(coords_tensor, sigma=1.0, threshold=1e-4):
     sigma = float(sigma)
     threshold = float(threshold)

@@ -38,6 +38,18 @@ marker_weight: 1.8
 use_weighted_recon: true
 find_marker_method: 'fold_change'
 
+# pseudo spots
+pseudo:
+  spot_num: 2000
+  min_cell_num_in_spot: 2
+  max_cell_num_in_spot: 8
+  max_cell_types_in_spot: 3
+  generation_method: celltype   
+  n_jobs: 1
+
+  pretrain_epochs: 100
+  sup_coef: 1.0
+
 # visualization
 # plot_sets: ["train", "val", "test", "all"]   # options: any subset of ["train", "val", "test", "all"]
 plot_sets: [""]   # options: any subset of ["train", "val", "test", "all"]
