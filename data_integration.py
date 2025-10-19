@@ -186,3 +186,11 @@ def pseudo_spot_generation(sc_exp,
         
     return pseudo_spots
 
+def cpm(df, target_sum=1e4):
+    """Return CPM (linear). Rows are spots/cells; columns are genes."""
+    lib = df.sum(axis=1).replace(0, 1.0)
+    return df.div(lib, axis=0) * float(target_sum)
+
+def cpm_log1p(df, target_sum=1e4):
+    """CPM then log1p, stable across ST and scRNA."""
+    return np.log1p(cpm(df, target_sum=target_sum))

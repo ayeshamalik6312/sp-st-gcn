@@ -1,0 +1,66 @@
+# paths
+st_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"
+sc_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data/"
+results_path: "/data/alif/sp_vae_gcn/code_v3/sp-st-gcn/results/seqFISH+/"
+
+# st_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/ST_data/"
+# sc_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/sc_data/"
+# results_path: "/data/alif/sp_vae_gcn/code_v3/sp-st-gcn/results/seqFISH/"
+
+# st_data_dir: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/ST_data/"
+# sc_data_dir: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/sc_data/"
+# results_path: "/data/alif/sp_vae_gcn/code_v3/sp-st-gcn/results/MERFISH/"
+
+# st_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/ST_data"
+# sc_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/sc_data"
+# results_path: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/results"
+
+# preprocessing
+split_seed: 1941
+split_size: 0.2
+val_size: 0.1
+adjacency_threshold: 1e-1
+adjacency_sigma: 2.0
+
+# model
+hidden_dim: 128
+latent_dim: 32
+tau: 0.5
+dropout_rate: 0.2
+
+# training
+n_epochs: 300
+lr: 1e-4
+l2_lambda: 1e-4
+patience: 20
+
+# loss weights
+loss_recon: 1.0
+loss_kl: 0.0
+loss_ot: 0.0
+loss_smooth: 0.0
+loss_deconv: 5.0
+loss_ent: 0.5
+loss_contrast: 0.5
+
+# Marker gene settings
+n_markers_per_type: 20
+marker_weight: 1.0
+use_weighted_recon: true
+find_marker_method: 'wilcoxon'
+
+# pseudo spots
+pseudo:
+  spot_num: 2000
+  min_cell_num_in_spot: 2
+  max_cell_num_in_spot: 8
+  max_cell_types_in_spot: 3
+  generation_method: celltype   
+  n_jobs: 1
+
+  pretrain_epochs: 100
+  sup_coef: 1.0
+
+# visualization
+# plot_sets: ["train", "val", "test", "all"]   # options: any subset of ["train", "val", "test", "all"]
+plot_sets: ["all", "test"]   # options: any subset of ["train", "val", "test", "all"]

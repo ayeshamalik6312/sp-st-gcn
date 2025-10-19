@@ -1,18 +1,48 @@
 # paths
 #st_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"
 #sc_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data/"
-#results_path: "/data/alif/sp_vae_gcn/results/seqFISH+/"
+#results_path: "/data/alif/sp_vae_gcn/code_v3/sp-st-gcn/results/seqFISH+/"
 
-st_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/ST_data"
-sc_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/sc_data"
-results_path: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/results"
+# st_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/ST_data/"
+# sc_data_dir: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/sc_data/"
+# results_path: "/data/alif/sp_vae_gcn/code_v3/sp-st-gcn/results/seqFISH/"
+
+# st_data_dir: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/ST_data/"
+# sc_data_dir: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/sc_data/"
+# results_path: "/data/alif/sp_vae_gcn/code_v3/sp-st-gcn/results/MERFISH/"
+
+#st_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/ST_data"
+#sc_data_dir: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/data/seqFISH/ours/sc_data"
+#results_path: "C:/Users/ayesh/Documents/Research/Cell Deconvolution/SP-VAE-GCN/results"
+
+#st_data_dir: "/home/ayesha/SP-VAE-GCN/data/seqFISH/ours/ST_data"
+#sc_data_dir: "/home/ayesha/SP-VAE-GCN/data/seqFISH/ours/sc_data"
+#results_path: "/home/ayesha/SP-VAE-GCN/results/seqFISH"
+
+st_data_dir: "/home/ayesha/SP-VAE-GCN/data/stdgcn-sample/ST_data"
+sc_data_dir: "/home/ayesha/SP-VAE-GCN/data/stdgcn-sample/sc_data"
+results_path: "/home/ayesha/SP-VAE-GCN/results/seqFISH++"
 
 # preprocessing
-split_seed: 1951
+split_seed: null
 split_size: 0.2
 val_size: 0.1
 adjacency_threshold: 1e-1
 adjacency_sigma: 2.0
+
+
+# adjacency
+use_pseudo_knn: true
+k_pseudo: 10
+expr_distance: "cosine"   # or "euclidean"
+sigma_expr: 1.0           # Gaussian kernel width in z-space
+use_cross_edges: true
+k_cross_real: 3
+k_cross_pseudo: 3
+cross_mode: "mutual"      # "mutual" or "union"
+cross_scale: 0.5
+adjacency_norm: "sym"     # "sym" (D^-1/2 A D^-1/2) or "row"
+self_loop_eps: 1.0e-3
 
 # model
 hidden_dim: 128
@@ -27,16 +57,19 @@ l2_lambda: 1e-4
 patience: 20
 
 # loss weights
-loss_alpha: 0.5
-loss_beta: 0.2
-loss_gamma: 0.0
-loss_delta: 0.2
+loss_recon: 1.0
+loss_kl: 0.0
+loss_ot: 0.0
+loss_smooth: 2.0
+loss_deconv: 5.0
+loss_ent: 0.5
+loss_contrast: 0.5
 
 # Marker gene settings
-n_markers_per_type: 4
-marker_weight: 1.8
+n_markers_per_type: 20
+marker_weight: 2.0
 use_weighted_recon: true
-find_marker_method: 'fold_change'
+find_marker_method: 'wilcoxon'
 
 # pseudo spots
 pseudo:
@@ -52,4 +85,4 @@ pseudo:
 
 # visualization
 # plot_sets: ["train", "val", "test", "all"]   # options: any subset of ["train", "val", "test", "all"]
-plot_sets: [""]   # options: any subset of ["train", "val", "test", "all"]
+plot_sets: ["all", "test"]   # options: any subset of ["train", "val", "test", "all"]

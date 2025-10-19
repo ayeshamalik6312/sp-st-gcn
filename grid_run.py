@@ -3,12 +3,13 @@
 import itertools
 import subprocess
 import yaml
+import os
 from copy import deepcopy
 
-BASE_CFG = "config.yaml"   # your base config
-TEMP_CFG = "config_tmp.yaml" # temporary config for each run
-GRID_CFG = "grid.yaml"     # param grid
-TRAIN    = "train.py"      # training entrypoint
+BASE_CFG = "config.yaml"      # base config file
+TEMP_CFG = "config_tmp.yaml"  # temporary config for each run
+GRID_CFG = "grid.yaml"        # parameter grid
+TRAIN    = "train.py"         # training entrypoint
 
 def load_yaml(path):
     with open(path, "r") as f:
@@ -19,7 +20,7 @@ def dump_yaml(obj, path):
         yaml.safe_dump(obj, f, sort_keys=False)
 
 def product_dict(d):
-    """dict of lists -> iterator of dicts with all combinations."""
+    """Convert dict of lists into iterator of dicts with all combinations."""
     keys = list(d.keys())
     vals = [d[k] if isinstance(d[k], list) else [d[k]] for k in keys]
     for combo in itertools.product(*vals):
@@ -29,7 +30,7 @@ def main():
     base = load_yaml(BASE_CFG)
     grid = load_yaml(GRID_CFG)
 
-    # turn plot_sets=[[]] into an empty list (to avoid plotting)
+    # Optional: turn plot_sets=[[]] into an empty list (to avoid plotting)
     if "plot_sets" in grid:
         grid["plot_sets"] = [lst if isinstance(lst, list) else [] for lst in grid["plot_sets"]]
 
@@ -38,16 +39,22 @@ def main():
 
     for i, upd in enumerate(combos, 1):
         cfg = deepcopy(base)
-        # apply updates
+        # apply parameter updates
         for k, v in upd.items():
             cfg[k] = v
-        # write config.yaml
+        # write temporary config
         dump_yaml(cfg, TEMP_CFG)
 
         tag = " ".join(f"{k}={v}" for k, v in upd.items())
         print(f"\n=== [{i}/{len(combos)}] {tag} ===")
-        # call train.py (blocking)
-        subprocess.run(["python", TRAIN], check=True)
+
+        try:
+            # run training with the temporary config file (use --config flag)
+            subprocess.run(["python", TRAIN, f"--config={TEMP_CFG}"], check=True)
+        finally:
+            # clean up temp config file after each run
+            if os.path.exists(TEMP_CFG):
+                os.remove(TEMP_CFG)
 
 if __name__ == "__main__":
     main()

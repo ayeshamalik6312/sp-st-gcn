@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+
+ #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
 import time
@@ -42,6 +43,8 @@ print(f"Using device: {device}")
 # ST data
 Y_df = pd.read_csv(os.path.join(st_data_dir, "ST_data.tsv"), sep="\t", index_col=0)
 coords_df = pd.read_csv(os.path.join(st_data_dir, "coordinates.csv"), index_col=0)
+G_real_df = pd.read_csv(os.path.join(st_data_dir, "ST_ground_truth.tsv"), sep="\t", index_col=0)
+
 
 # keep intersection
 intersection = sorted(set(Y_df.index) & set(coords_df.index))
@@ -63,6 +66,7 @@ common_genes = Y_df.columns.intersection(sc_df.columns)
 Y_df = Y_df[common_genes]
 sc_df = sc_df[list(common_genes) + ["cell_type"]]
 
+
 # -------------- Find marker genes -------------
 marker_dict, marker_scores = find_marker_genes(
     sc_df, 
@@ -74,7 +78,7 @@ marker_dict, marker_scores = find_marker_genes(
 marker_scores.to_csv(os.path.join(results_path, "marker_scores.csv"))
 with open(os.path.join(results_path, "marker_genes.txt"), 'w') as f:
     for ct, indices in marker_dict.items():
-        gene_names_list = [list(common_genes)[i] for i in indices[:5]]
+        gene_names_list = [list(common_genes)[i] for i in indices]
         f.write(f"{ct}: {gene_names_list}\n")
 
 # build marker name list and order it (for subsetting use)
@@ -82,21 +86,25 @@ gene_names = [g for g in sc_df.columns if g != "cell_type"]
 selected_genes = sorted({ gene_names[i] for idxs in marker_dict.values() for i in idxs })
 selected_genes_ordered = [g for g in Y_df.columns if g in selected_genes]
 
-# subset to identified marker genes 
-Y_df  = Y_df[selected_genes_ordered]
-sc_df = sc_df[selected_genes_ordered + ["cell_type"]]
-sc_raw_markers = sc_df_raw[selected_genes_ordered].copy()    # for pseudo spots
-sc_raw_markers["cell_type"] = sc_df["cell_type"].values      # for pseudo spots
+# --- subset to identified marker genes ---
+Y_df  = Y_df[selected_genes_ordered].copy()
+sc_df = sc_df[selected_genes_ordered + ["cell_type"]].copy()
+Y_log = cpm_log1p(Y_df[selected_genes_ordered])               # (spots x genes)
+
+sc_cpm  = cpm(sc_df[selected_genes_ordered])                  # (cells x genes) linear CPM
+sc_log  = np.log1p(sc_cpm)                                    # (cells x genes) logCPM
+sc_cpm["cell_type"] = sc_df["cell_type"].values
+sc_log["cell_type"] = sc_df["cell_type"].values
 
 # ------------- Pseudo Spot Generation -------------
-
 # build AnnData for pseudo generation
 sc_adata = sc.AnnData(
-    X=sc_raw_markers[selected_genes_ordered].values,  
-    obs=pd.DataFrame({"cell_type": sc_raw_markers["cell_type"].astype(str).values},
-                     index=sc_raw_markers.index),
+    X=sc_cpm[selected_genes_ordered].values,  # linear CPM (not log)
+    obs=pd.DataFrame({"cell_type": sc_cpm["cell_type"].astype(str).values},
+                     index=sc_cpm.index),
     var=pd.DataFrame(index=selected_genes_ordered)
 )
+
 
 cell_types = sc_adata.obs["cell_type"].unique().tolist()
 word_to_idx = {ct: i for i, ct in enumerate(cell_types)}
@@ -124,55 +132,66 @@ pseudo_adata = pseudo_spot_generation(
     n_jobs=pseudo_cfg["n_jobs"]
 )
 
+# ---  Normalize ---
+# --- Pseudo are sums of CPM; re-normalize each pseudo to same library, then log1p ---
+pseudo_cpm = pd.DataFrame(pseudo_adata.X, index=pseudo_adata.obs_names, columns=pseudo_adata.var_names)
+# re-normalize pseudo CPM rows to the same library size as ST/sc
+pseudo_cpm = cpm(pseudo_cpm, target_sum=1e4)
+Y_pseudo_log = np.log1p(pseudo_cpm)[selected_genes_ordered]   # logCPM on markers
+
 Y_pseudo_raw = pd.DataFrame(pseudo_adata.X,
                             index=pseudo_adata.obs_names,
                             columns=pseudo_adata.var_names)[selected_genes_ordered]
 
-# --------------- Normalize ----------------
-
-# scale real spatial transcriptomics data
-scaler_Y = StandardScaler()
-Y_df[selected_genes_ordered] = scaler_Y.fit_transform(Y_df[selected_genes_ordered])
-
-# scale pseudo spots
-Y_pseudo = pd.DataFrame(
-    scaler_Y.transform(Y_pseudo_raw),
-    index=Y_pseudo_raw.index,
-    columns=selected_genes_ordered
-)
-
-# scale single cell ref data
-scaler_X = StandardScaler()
-sc_df[selected_genes_ordered] = scaler_X.fit_transform(sc_df[selected_genes_ordered])
-
-X_ref_df = sc_df.groupby("cell_type").mean()
-X_ref_df[selected_genes_ordered] = scaler_X.fit_transform(X_ref_df[selected_genes_ordered])
+X_ref_df = sc_log.groupby("cell_type")[selected_genes_ordered].mean()  # (C x G)
 cell_type_names = X_ref_df.index.tolist()
 
-# build pseudo ground truth
+scaler = StandardScaler()
+
+Y_z = pd.DataFrame(
+    scaler.fit_transform(Y_log[selected_genes_ordered]),
+    index=Y_log.index, columns=selected_genes_ordered
+)
+
+Y_pseudo_z = pd.DataFrame(
+    scaler.transform(Y_pseudo_log),
+    index=Y_pseudo_log.index, columns=selected_genes_ordered
+)
+
+X_ref_z = pd.DataFrame(
+    scaler.transform(X_ref_df[selected_genes_ordered]),
+    index=X_ref_df.index, columns=selected_genes_ordered
+)
+
+# Pseudo ground truth fractions (already in pseudo_adata.obs)
 B_pseudo = (
     pseudo_adata.obs.reindex(columns=cell_type_names)
     .fillna(0.0)
     .astype(float)
 )
 
-X = torch.tensor(X_ref_df.values, dtype=torch.float32).to(device)
+B_pseudo_gt = torch.tensor(
+    B_pseudo.values, dtype=torch.float32, device=device
+)
+
+# Torch tensor for reference (cell-type x genes)
+X = torch.tensor(X_ref_z.values, dtype=torch.float32).to(device)
 
 # ---------------- Combine Real and Pseudo Data ----------------
-Y_combined_df = pd.concat([Y_df, Y_pseudo], ignore_index=True)
+Y_combined_df = pd.concat([Y_z, Y_pseudo_z], ignore_index=True)
 Y_combined = torch.tensor(Y_combined_df.values, dtype=torch.float32).to(device)
 
-G_real_df = pd.read_csv(os.path.join(st_data_dir, "ST_ground_truth.tsv"), sep="\t", index_col=0)
-G_real_df = G_real_df.loc[Y_df.index, cell_type_names]
+G_real_df = G_real_df.loc[Y_z.index, cell_type_names]
 
 B_combined_df = pd.concat([G_real_df, B_pseudo], ignore_index=True)
 B_combined_gt = torch.tensor(B_combined_df.values, dtype=torch.float32).to(device)
 
 
 # ---------------- Build the Combined Graph ----------------
-num_real_spots = Y_df.shape[0]
-num_pseudo_spots = Y_pseudo.shape[0]
-num_total_spots = num_real_spots + num_pseudo_spots
+num_real_spots   = Y_z.shape[0]
+num_pseudo_spots = Y_pseudo_z.shape[0]
+num_total_spots  = num_real_spots + num_pseudo_spots
+
 
 A_real = compute_adjacency(coords, sigma=config["adjacency_sigma"], threshold=config["adjacency_threshold"])
 A_real_norm = normalize_adjacency(A_real)
@@ -181,11 +200,90 @@ A_combined = torch.zeros(num_total_spots, num_total_spots, device=device)
 
 A_combined[:num_real_spots, :num_real_spots] = A_real_norm
 
-# Add self-loops for the pseudo-spots (they are disconnected nodes)
-pseudo_indices_loop = torch.arange(num_real_spots, num_total_spots)
-A_combined[pseudo_indices_loop, pseudo_indices_loop] = 1.0
+Nr = Y_z.shape[0]
+Np = Y_pseudo_z.shape[0]
+
+A_combined = build_hybrid_adjacency(
+    Y_real_z=torch.tensor(Y_z.values, dtype=torch.float32, device=device),
+    coords_real=coords,                              # (Nr x 2) tensor you already have
+    Y_pseudo_z=torch.tensor(Y_pseudo_z.values, dtype=torch.float32, device=device),
+    spatial_sigma=float(config["adjacency_sigma"]),
+    spatial_threshold=float(config["adjacency_threshold"]),
+    k_pseudo=int(config["k_pseudo"]),
+    sigma_expr=float(config["sigma_expr"]),
+    expr_metric=config.get("expr_distance", "cosine"),
+    use_cross=bool(config["use_cross_edges"]),
+    k_cross_real=int(config["k_cross_real"]),
+    k_cross_pseudo=int(config["k_cross_pseudo"]),
+    cross_mode=config.get("cross_mode", "mutual"),
+    cross_scale=float(config["cross_scale"]),
+    self_loop_eps=float(config.get("self_loop_eps", 1e-3)),
+    norm=config.get("adjacency_norm", "sym"),
+)
+
+edge_index_combined, edge_weight_combined = get_edges(A_combined)
+
 
 print(f"Combined adjacency matrix shape: {A_combined.shape}\n")
+
+def _binary_components(A):
+    # very small, rough check using BFS on CPU (ok for counts)
+    import numpy as np
+    import collections
+    B = (A.detach().cpu().numpy() > 0).astype(np.uint8)
+    N = B.shape[0]; seen = np.zeros(N, dtype=bool); comps = 0
+    for s in range(N):
+        if seen[s]: continue
+        comps += 1
+        q = collections.deque([s]); seen[s]=True
+        while q:
+            u = q.popleft()
+            nbrs = np.nonzero(B[u])[0]
+            for v in nbrs:
+                if not seen[v]:
+                    seen[v]=True; q.append(v)
+    return comps
+
+with torch.no_grad():
+    N = A_combined.size(0); Nr = Y_z.shape[0]; Np = Y_pseudo_z.shape[0]
+
+    deg = A_combined.sum(dim=1).detach().cpu().numpy()
+    deg_real   = A_combined[:Nr, :].sum(dim=1).detach().cpu().numpy()
+    deg_pseudo = A_combined[Nr:, :].sum(dim=1).detach().cpu().numpy()
+
+    print(f"[Graph] degree all  min/mean/max = {deg.min():.2f}/{deg.mean():.2f}/{deg.max():.2f}")
+    print(f"[Graph] degree real mean = {deg_real.mean():.2f} | pseudo mean = {deg_pseudo.mean():.2f}")
+
+    comps = _binary_components(A_combined)
+    print(f"[Graph] connected components (binary): {comps}")
+
+    # Rough block means (pre-normalization would be better; but still indicative)
+    # If you want exact, compute before normalization inside build_hybrid_adjacency and return stats.
+    A = A_combined  # normalized
+    mean_RR = (A[:Nr, :Nr][A[:Nr, :Nr] > 0].mean().item()) if (A[:Nr,:Nr] > 0).any() else 0.0
+    mean_PP = (A[Nr:, Nr:][A[Nr:, Nr:] > 0].mean().item()) if (A[Nr:,Nr:] > 0).any() else 0.0
+    mean_RP = (A[:Nr, Nr:][A[:Nr, Nr:] > 0].mean().item()) if (A[:Nr,Nr:] > 0).any() else 0.0
+    print(f"[Graph] mean weight RR={mean_RR:.4f}  PP={mean_PP:.4f}  RP={mean_RP:.4f}")
+
+# Pseudo neighbor purity (argmax over B_pseudo)
+# (This is a quick biological sanity; optional.)
+if "cell_type" in B_pseudo.columns:
+    import numpy as np
+    # build a hard label for each pseudo from B_pseudo row argmax
+    pseudo_label = torch.tensor(B_pseudo.values.argmax(axis=1), device=device)  # (Np,)
+    A_PP_bin = (A_combined[Nr:, Nr:] > 0).float()
+    deg_pp = A_PP_bin.sum(dim=1, keepdim=True) + 1e-12
+    # neighbor majority agreement rate
+    # (for each pseudo, fraction of neighbors sharing its label)
+    nbr_idx = (A_PP_bin > 0).nonzero(as_tuple=False)  # [E, 2]
+    # build per-node agreement
+    agree = torch.zeros(Np, device=device)
+    counts = torch.zeros(Np, device=device)
+    for (i,j) in nbr_idx:
+        agree[i] += float(pseudo_label[i] == pseudo_label[j])
+        counts[i] += 1.0
+    purity = (agree / torch.clamp(counts, min=1.0)).mean().item()
+    print(f"[Bio] pseudo neighbor purity (argmax cell type): {purity:.3f}")
 
 
 # ---------------- STEP 3: Define Splits and Masks ----------------
@@ -201,6 +299,16 @@ test_size = int(num_real_spots * config["split_size"])
 
 val_idx = real_indices[:val_size]
 test_idx = real_indices[val_size : val_size + test_size]
+train_real_idx = real_indices[val_size + test_size:]
+
+train_real_mask   = torch.zeros(num_total_spots, dtype=torch.bool, device=device)
+train_real_mask[train_real_idx] = True
+
+train_pseudo_mask = torch.zeros(num_total_spots, dtype=torch.bool, device=device)
+train_pseudo_mask[pseudo_indices] = True
+
+train_unsup_mask  = train_real_mask.clone()
+train_unsup_mask[pseudo_indices] = True   # real(train) ∪ pseudo(all)
 
 val_mask = torch.zeros(num_total_spots, dtype=torch.bool, device=device)
 val_mask[val_idx] = True
@@ -213,6 +321,50 @@ train_pseudo_mask[pseudo_indices] = True
 
 edge_index_combined, edge_weight_combined = get_edges(A_combined)
 
+
+print("\n=== RunInfo ===")
+print(f"Real spots:   {Y_z.shape[0]}")
+print(f"Pseudo spots: {Y_pseudo_z.shape[0]}")
+print(f"Total spots:  {Y_z.shape[0] + Y_pseudo_z.shape[0]}")
+print(f"#Markers:     {len(selected_genes_ordered)}")
+print(f"#Cell types:  {len(cell_type_names)}")
+print(f"Y_z.shape       = {Y_z.shape}")
+print(f"Y_pseudo_z.shape= {Y_pseudo_z.shape}")
+print(f"X_ref_z.shape   = {X_ref_z.shape}")
+print(f"train_real   : {train_real_mask.sum().item()}")
+print(f"train_pseudo : {train_pseudo_mask.sum().item()}")
+print(f"train_unsup  : {train_unsup_mask.sum().item()}")
+print(f"val_real     : {val_mask.sum().item()}")
+print(f"test_real    : {test_mask.sum().item()}")
+
+
+assert list(Y_z.columns) == list(X_ref_z.columns) == selected_genes_ordered, "Marker columns misaligned!"
+print("Column alignment (Y_z ~ X_ref_z ~ selected_genes_ordered): OK")
+
+def _scaling_summary(df, label):
+    mu = df.mean(axis=0).values
+    sd = df.std(axis=0, ddof=0).values
+    print(f"[{label}]  mean(|per-gene mean|)={np.mean(np.abs(mu)):.3f}   mean(per-gene std)={np.mean(sd):.3f}")
+
+_scaling_summary(Y_z,        "Y_real(z)")
+_scaling_summary(Y_pseudo_z, "Y_pseudo(z)")
+_scaling_summary(X_ref_z,    "X_ref(z)")
+
+# pseudo B sums
+row_sums = B_pseudo.sum(axis=1).values
+print(f"Pseudo B row-sum   min/mean/max = {row_sums.min():.3f}/{row_sums.mean():.3f}/{row_sums.max():.3f}")
+
+# “units check”: do B*X_ref_z ≈ Y_z on a few real spots with known B?
+sample_n  = min(5, Y_z.shape[0])
+sample_ix = np.random.choice(np.arange(Y_z.shape[0]), size=sample_n, replace=False)
+Y_real_sample = Y_z.iloc[sample_ix].values
+B_real_sample = G_real_df.iloc[sample_ix][cell_type_names].values
+Y_hat_sample  = B_real_sample @ X_ref_z.values
+mse_list = ((Y_real_sample - Y_hat_sample)**2).mean(axis=1)
+print("Sanity MSE on a few real spots using true B and X_ref (z-scored space):")
+# print("  per-spot MSE:", ", ".join([f\"{m:.3f}\" for m in mse_list]))
+print(f"  mean MSE    : {mse_list.mean():.3f}\n")
+
 # ---------------- Model ----------------
 input_dim = Y_combined.shape[1]
 n_celltypes = X.shape[0]
@@ -224,53 +376,107 @@ optimizer = torch.optim.Adam(model.parameters(), lr=float(config["lr"]), weight_
 # ---------------- Training ----------------
 loss_history, val_loss_history = [], []
 best_val_loss, patience_counter = float("inf"), 0
-patience = config["patience"]
+patience = int(config["patience"])
+
+# Base (config-driven) weights
 config_loss_params = {
-    "alpha": config["loss_alpha"], "beta": config["loss_beta"],
-    "gamma": config["loss_gamma"], "delta": config["loss_delta"],
-    "latent_dim": config["latent_dim"]
+    "lambda_recon": float(config["loss_recon"]),
+    "lambda_kl": float(config["loss_kl"]),
+    "lambda_ot": float(config["loss_ot"]),
+    "lambda_smooth": float(config["loss_smooth"]),
+    "lambda_deconv": float(config["loss_deconv"]),
+    "lambda_ent": float(config["loss_ent"]),
+    "lambda_contrast": float(config["loss_contrast"]),
+    "latent_dim": int(config["latent_dim"]),
 }
 
-for epoch in range(config["n_epochs"]):
+# Split into two “views” of the loss:
+# 1) UNSUP: used on (real_train ∪ pseudo_all) — no B supervision
+unsup_params = dict(config_loss_params)
+unsup_params["lambda_deconv"] = 0.0  # no supervised term in unsup pass
+
+# 2) SUP (pseudo-only): only the deconv/entropy/contrast terms (to avoid double-counting)
+sup_params = dict(config_loss_params)
+sup_params["lambda_recon"]  = 0.0
+sup_params["lambda_kl"]     = 0.0
+sup_params["lambda_ot"]     = 0.0
+sup_params["lambda_smooth"] = 0.0
+# keep lambda_deconv / lambda_ent / lambda_contrast from config
+
+print_every = int(config.get("print_every", 25))
+
+# Shapes match?
+assert Y_combined[train_pseudo_mask].shape[0] == B_pseudo_gt.shape[0], "Pseudo mask and GT size mismatch."
+
+# Loss weights sanity:
+print("Loss weights (unsup):", {k:v for k,v in unsup_params.items() if k.startswith("lambda_")})
+print("Loss weights (sup):  ", {k:v for k,v in sup_params.items()  if k.startswith("lambda_")})
+
+for epoch in range(int(config["n_epochs"])):
     model.train()
     optimizer.zero_grad()
-    
-    Y_hat_all, mu_all, logvar_all, B_pred_all = model(Y_combined, edge_index_combined, edge_weight_combined, X)
 
-    loss, _, _, _, _, _ = vae_loss(
+    # Forward once (shared graph, shared X_ref)
+    Y_hat_all, mu_all, logvar_all, B_pred_all = model(
+        Y_combined, edge_index_combined, edge_weight_combined, X
+    )
+
+    # --- (1) Unsupervised loss on real_train ∪ all pseudo ---
+    unsup_loss, recon_u, kl_u, ot_u, smooth_u, deconv_u, ent_u, contr_u = vae_loss(
+        Y_combined[train_unsup_mask],
+        Y_hat_all[train_unsup_mask],
+        mu_all[train_unsup_mask],
+        logvar_all[train_unsup_mask],
+        A_combined[train_unsup_mask, :][:, train_unsup_mask],
+        B_pred_all[train_unsup_mask],
+        B_gt=None,                    
+        **unsup_params
+    )
+
+    # --- (2) Supervised (deconv) loss on pseudo only ---
+    sup_loss, recon_s, kl_s, ot_s, smooth_s, deconv_s, ent_s, contr_s = vae_loss(
         Y_combined[train_pseudo_mask],
         Y_hat_all[train_pseudo_mask],
         mu_all[train_pseudo_mask],
         logvar_all[train_pseudo_mask],
-        A_combined[train_pseudo_mask, :][:, train_pseudo_mask], 
+        A_combined[train_pseudo_mask, :][:, train_pseudo_mask],
         B_pred_all[train_pseudo_mask],
-        B_gt=B_combined_gt[train_pseudo_mask],
-        **config_loss_params
+        B_gt=B_pseudo_gt,             
+        **sup_params
     )
-    
+
+    # Total loss = unsup + sup
+    loss = unsup_loss + sup_loss
     loss.backward()
     optimizer.step()
     loss_history.append(loss.item())
 
-    # --- Validation Phase ---
+    # --- Validation: unsupervised ONLY on real(val) ---
     model.eval()
     with torch.no_grad():
-        val_loss, _, _, _, _, _ = vae_loss(
+        val_loss, recon_v, kl_v, ot_v, smooth_v, deconv_v, ent_v, contr_v = vae_loss(
             Y_combined[val_mask],
             Y_hat_all[val_mask],
             mu_all[val_mask],
             logvar_all[val_mask],
-            A_combined[val_mask, :][:, val_mask], 
+            A_combined[val_mask, :][:, val_mask],
             B_pred_all[val_mask],
-            B_gt=B_combined_gt[val_mask],
-            **config_loss_params
+            B_gt=None,                
+            **unsup_params
         )
         val_loss_history.append(val_loss.item())
 
-    if (epoch + 1) % 25 == 0 or epoch == 0:
-        print(f"Epoch {epoch+1:03d}: Train (Pseudo)={loss.item():.4f} | Val (Real)={val_loss.item():.4f}")
+    if (epoch + 1) % print_every == 0 or epoch == 0:
+        # Optional: show some components to understand dynamics
+        print(
+            f"Epoch {epoch+1:03d} | "
+            f"Train total={loss.item():.4f}  (unsup={unsup_loss.item():.4f}, sup={sup_loss.item():.4f})  "
+            f"| Val unsup={val_loss.item():.4f}  "
+            f"[recon_u={recon_u.item():.3f}, kl_u={kl_u.item():.3f}, smooth_u={smooth_u.item():.3f}, "
+            f"deconv_s={deconv_s.item():.3f}, ent_s={ent_s.item():.3f}, contr_s={contr_s.item():.3f}]"
+        )
 
-    # --- Early Stopping Logic ---
+    # --- Early stopping on val (unsupervised) ---
     if val_loss < best_val_loss:
         best_val_loss, patience_counter = val_loss, 0
         best_state = model.state_dict()
@@ -282,6 +488,7 @@ for epoch in range(config["n_epochs"]):
 
 # restore best model
 model.load_state_dict(best_state)
+
 
 # save loss curves
 plt.plot(loss_history, label="Train (Pseudo)")

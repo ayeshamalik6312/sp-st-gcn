@@ -1,14 +1,39 @@
-# grid.yaml — edit to taste
+# # grid.yaml — edit to taste
+# split_seed: [8086]  # keep singleton to hold constant
+# adjacency_threshold: [1e-1, 1e-2]
+# adjacency_sigma: [1.0, 2.0]
+# hidden_dim: [128, 256]
+# latent_dim: [16, 32]
+# tau: [0.5]          # keep singleton to hold constant
+# dropout_rate: [0.2] # "
+# lr: [1e-4, 5e-5]
+# loss_alpha: [0.3, 0.5, 0.7, 0.9, 1.0]
+# loss_beta: [0.0, 0.2, 0.5, 0.8, 1.0]
+# loss_gamma: [0.0, 0.2, 0.5, 0.8, 1.0]
+# loss_delta: [0.0, 0.2, 0.5, 0.8, 1.0]
+# plot_sets: [[]]     # disable plotting in sweeps
+
+
+# grid.yaml — edit to test
 split_seed: [8086]  # keep singleton to hold constant
-adjacency_threshold: [1e-1, 1e-2]
-adjacency_sigma: [1.0, 2.0]
-hidden_dim: [128, 256]
-latent_dim: [16, 32]
+adjacency_threshold: [1e-1]
+adjacency_sigma: [2.0]
+hidden_dim: [128]
+latent_dim: [32]
 tau: [0.5]          # keep singleton to hold constant
 dropout_rate: [0.2] # "
-lr: [1e-4, 5e-5]
-loss_alpha: [0.3, 0.5, 0.7, 0.9, 1.0]
-loss_beta: [0.0, 0.2, 0.5, 0.8, 1.0]
-loss_gamma: [0.0, 0.2, 0.5, 0.8, 1.0]
-loss_delta: [0.0, 0.2, 0.5, 0.8, 1.0]
+lr: [1e-4]
+
+n_markers_per_type: [4, 6]
+marker_weight: [1.0, 1.5, 2.0]
+use_weighted_recon: [true]
+find_marker_method: ['fold_change', 'wilcoxon']
+
+loss_recon: [1.0]
+loss_kl: [0.0]
+loss_ot: [0.0]
+loss_smooth: [0.0]
+loss_deconv: [0.0, 5.0]
+loss_ent: [0.0, 0.1]
+loss_contrast: [0.0, 0.1]
 plot_sets: [[]]     # disable plotting in sweeps

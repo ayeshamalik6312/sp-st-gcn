@@ -1,0 +1,4 @@
+Choroid Plexus: ['Igf2', 'Atp2b3', 'Enpp2', 'Clic6', 'Aqp1']
+Neural Stem: ['Ttyh1', 'Thbs4', 'Igfbp5', 'Gja1', 'Dtx1']
+Neuroblast: ['Dlx1', 'Dlx2', 'Insm1', 'Islr2', 'Myt1']
+Ependymal: ['Tm4sf1', 'Foxj1', 'Fhl1', 'Car9', 'Elmod3']

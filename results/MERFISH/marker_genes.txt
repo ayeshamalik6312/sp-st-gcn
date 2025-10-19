@@ -1,0 +1,7 @@
+Astrocyte: ['Aldh1l1', 'Aqp4', 'Bmp7', 'Cspg5', 'Cxcl14']
+Inhibitory: ['Ace2', 'Amigo2', 'Ano3', 'Ar', 'Arhgap36']
+OD Mature 2: ['Ermn', 'Etv1', 'Gjc3', 'Lpar1', 'Ndrg1']
+Endothelial 1: ['Baiap2', 'Cdkn1a', 'Fn1', 'Igf1r', 'Klf4']
+Ambiguous: ['Ace2', 'Adora2a', 'Aldh1l1', 'Aqp4', 'Blank_5']
+OD Immature 1: ['Bmp7', 'Ccnd2', 'Creb3l1', 'Cspg5', 'Cxcl14']
+Excitatory: ['Ace2', 'Amigo2', 'Ano3', 'Ar', 'Arhgap36']

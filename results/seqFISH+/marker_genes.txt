@@ -1,0 +1,4 @@
+Choroid Plexus: ['Igf2', 'Atp2b3', 'Enpp2', 'Clic6', 'Aqp1', 'Tmem72', 'Folr1', 'Kl', 'Sostdc1', 'Slc4a2', 'Abhd2', 'Gas6', 'Sulf1', 'Ucp2', 'Pltp', 'Ctsd', 'Pcolce', 'Nid2', 'Krt18', 'Sgk1']
+Neural Stem: ['Ttyh1', 'Thbs4', 'Igfbp5', 'Gja1', 'Dtx1', 'Ntsr2', 'Rgma', 'Scara3', 'Nr1d1', 'Htra1', 'Lrp4', 'Pcdh10', 'Csdc2', 'Mlc1', 'Trim9', 'Ctnnd2', 'Mgat5', 'Grin2c', 'Rasgef1b', 'S1pr1']
+Neuroblast: ['Dlx1', 'Dlx2', 'Insm1', 'Islr2', 'Myt1', 'Coro1c', 'Foxm1', 'Ascl1', 'Mcm5', 'Tiam2', 'Arhgef7', 'Trp53', 'Fscn1', 'Mex3d', 'Soga3', 'Dlgap3', 'Kif5a', 'Sncaip', 'Mcm7', 'Racgap1']
+Ependymal: ['Tm4sf1', 'Foxj1', 'Fhl1', 'Car9', 'Elmod3', 'Tagln2', 'Adrb3', 'Ttc34', 'Msc', 'Lrrc10b', 'Atp2c2', 'Sass6', 'Hey1', 'Tcte1', 'Nepn', 'Acot12', 'Lrrc71', 'Rsph4a', 'Flnc', 'Iqca']
