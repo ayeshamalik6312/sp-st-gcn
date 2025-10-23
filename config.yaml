@@ -1,0 +1,106 @@
+paths:
+  sc_path: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data"     # e.g., "./seqfish/sc_data"
+  ST_path: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"    # e.g., "./seqfish/ST_data"
+  output_path: "./output/seqFISH+/"                               # e.g., "./output"
+
+  # ST_path: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/ST_data/"
+  # sc_path: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/sc_data/"
+  # output_path: "./output/seqFISH/"
+
+  # ST_path: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/ST_data/"
+  # sc_path: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/sc_data/"
+  # output_path: "./output/MERFISH/"
+
+find_marker_genes_paras:
+  preprocess: true
+  normalize: true
+  log: true
+  highly_variable_genes: false
+  highly_variable_gene_num: null
+  regress_out: false
+  PCA_components: 30
+  marker_gene_method: "logreg"      # wilcoxon | logreg
+  top_gene_per_type: 100
+  filter_wilcoxon_marker_genes: true
+  pvals_adj_threshold: 0.10
+  log_fold_change_threshold: 1
+  min_within_group_fraction_threshold: null
+  max_between_group_fraction_threshold: null
+
+pseudo_spot_simulation_paras:
+  spot_num: 1000             # set higher (e.g., 30000) for full runs
+  min_cell_num_in_spot: 4
+  max_cell_num_in_spot: 8
+  generation_method: "celltype"   # "cell" or "celltype"
+  max_cell_types_in_spot: 4
+
+data_normalization_paras:
+  normalize: true
+  log: true
+  scale: false
+
+integration_for_feature_paras:
+  batch_removal_method: null         # e.g., "harmony" | "scanorama" | null
+  dimensionality_reduction_method: null  # e.g., "pca" | "ica" | null
+  dim: 80
+  scale: true
+
+# Top-level options for preprocess_SPGVAE
+options:
+  use_marker_genes: true
+  external_genes: false
+  generate_new_pseudo_spots: true
+  n_jobs: -1
+  GCN_device: "GPU"      # "GPU" or "CPU"
+
+# # graph params
+# graph:
+#   alpha_spatial: 5
+#   alpha_expr_real: 3
+#   alpha_expr_pseudo: 2
+#   k_real: 10
+#   k_pseudo: 10
+#   expr_thresh: 0.0   # 0 → keep all positive sims
+#   adjacency_sigma: 2.0
+#   adjacency_threshold: 1e-2
+graph:
+  alpha_spatial: 1.0
+  alpha_expr_real: 1.0
+  alpha_expr_pseudo: 1.0
+  alpha_cross: 1.0            # <— NEW
+  k_real: 10
+  k_pseudo: 10
+  k_cross_real_to_pseudo: 10  # <— NEW
+  k_cross_pseudo_to_real: 10  # <— NEW
+  expr_thresh: 0.0
+  mutual_knn: true            # <— NEW (use mutual-kNN)
+  use_spatial_knn: true       # <— NEW (switch to dense RBF if false)
+  adjacency_sigma: 1.0
+  adjacency_threshold: 1.0e-4
+
+# data split
+split_seed: null
+val_size: 0.1
+
+
+# model
+hidden_dim: 128
+latent_dim: 32
+tau: 0.5
+dropout_rate: 0.2
+
+
+# training
+n_epochs: 500
+lr: 1e-4
+l2_lambda: 1e-4
+patience: 30
+
+# loss weights
+loss_recon: 0.1
+loss_kl_lat: 0.01
+loss_kl_mix: 2.0
+loss_smooth: 0.1
+loss_ent: -0.2
+loss_align: 0.0       # >0 enables real↔pseudo alignment
+loss_l1: 0.0          # <— NEW (weight for L1 sparsity loss)
