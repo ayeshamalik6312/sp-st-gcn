@@ -1,0 +1,17 @@
+base_config: "config.yaml"
+out_dir: "/home/ayesha/SP-VAE-GCN/results/11-5-gridrun-seqFISH"
+disable_plots: true
+rerun_existing: false
+
+randomize: true          # shuffle the run order
+shuffle_seed: 8086       # set for reproducibility; omit for true randomness
+
+sweeps:
+  loss_recon:   [0.05, 0.1, 0.2]
+  loss_kl_lat:  [0.001, 0.01, 0.05]
+  loss_kl_mix:  [0.0, 0.5, 1.0, 2.0]
+  loss_smooth:  [0.0, 0.05, 0.1, 0.2]
+  loss_ent:     [0.0, -0.05, -0.1]
+  loss_align:   [0.0, 0.1, 0.5]
+  loss_l1:      [0.0, 1.0e-4, 1.0e-3]
+
