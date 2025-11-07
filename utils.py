@@ -127,8 +127,8 @@ def custom_split(Y, A, coords, val_size=0.1, test_size=0.2, seed=42):
     return subset(train_idx), subset(val_idx), subset(test_idx)
 
 
-def draw_pie_hex_grid(df, cell_types, colors, coords_df, save_path, title="Spatial Distribution"):
-    hex_radius = 1
+def draw_pie_hex_grid(df, cell_types, colors, coords_df, save_path, title="Spatial Distribution", radius=1):
+    hex_radius = radius
     figsize = (10, 10)
     fig, ax = plt.subplots(figsize=figsize)
     for idx, row in df.iterrows():

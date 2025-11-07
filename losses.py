@@ -5,6 +5,24 @@ import numpy as np
 # ---------------------------
 # Utilities
 # ---------------------------
+def sampled_graph_laplacian_loss(pred: torch.Tensor,
+                                 A: torch.Tensor,
+                                 num_samples: int = 50_000) -> torch.Tensor:
+    if A.is_sparse:
+        idx_i, idx_j = A.indices()
+        weights      = A.values()
+    else:                                              
+        idx_i, idx_j = torch.nonzero(A, as_tuple=True)
+        weights      = A[idx_i, idx_j]
+
+    E = idx_i.size(0)
+    if E > num_samples:                                   
+        perm = torch.randperm(E, device=A.device)[:num_samples]
+        idx_i, idx_j, weights = idx_i[perm], idx_j[perm], weights[perm]
+
+    diff = pred[idx_i] - pred[idx_j]                        
+    loss = (weights.unsqueeze(1) * diff.pow(2)).mean()
+    return loss
 
 def _to_tensor(x, device, dtype=torch.float32):
     if isinstance(x, torch.Tensor):
@@ -167,73 +185,90 @@ def _median_safe(x):
     m = torch.median(x)
     return m.item() if torch.isfinite(m) and (m > 0) else None
 
-def sinkhorn_loss(B_pred, B_true, epsilon=0.1, max_iter=200, tol=1e-3,
-                  p=2, scale_cost=True, dtype=torch.float64):
-    """
-    Entropic OT (balanced) with log-domain Sinkhorn. Accepts probs or logits.
-    Returns scalar <P, C>. Differentiable w.r.t. B_pred and B_true.
-    """
-    if not isinstance(B_pred, torch.Tensor) or not isinstance(B_true, torch.Tensor):
-        raise TypeError("sinkhorn_loss expects torch.Tensor inputs")
+def sinkhorn_loss(pred, ref, epsilon=0.1, max_iter=100):
 
-    # Handle empty inputs
-    if B_pred.numel() == 0 or B_true.numel() == 0:
-        return torch.zeros((), device=B_pred.device, dtype=B_pred.dtype)
+    cost_matrix = torch.cdist(pred, ref, p=2).pow(2)  # [N, M]
+    Q = -cost_matrix / epsilon
+    Q = Q - Q.max()  # for numerical stability
+    K = torch.exp(Q)
 
-    # Convert to probabilities and then to double for stability
-    xP, _ = _as_prob_and_logprob(B_pred)
-    yP, _ = _as_prob_and_logprob(B_true)
-    x = xP.to(dtype)
-    y = yP.to(dtype)
+    u = torch.ones(pred.shape[0], device=pred.device)
+    v = torch.ones(ref.shape[0], device=pred.device)
 
-    # Cost matrix (squared p-distance) - more efficient computation
-    C = torch.cdist(x, y, p=p).pow(2)
+    for _ in range(max_iter):
+        u = 1.0 / (K @ v)
+        v = 1.0 / (K.T @ u)
 
-    # Optional scaling to avoid exp underflow
-    if scale_cost:
-        med = _median_safe(C)
-        if med is not None and med > 0:
-            C = C / med
+    T = torch.diag(u) @ K @ torch.diag(v)  # Optimal transport plan
+    return torch.sum(T * cost_matrix)
 
-    n, m_ = C.shape
-    device = C.device
+# def sinkhorn_loss(B_pred, B_true, epsilon=0.1, max_iter=200, tol=1e-3,
+#                   p=2, scale_cost=True, dtype=torch.float64):
+#     """
+#     Entropic OT (balanced) with log-domain Sinkhorn. Accepts probs or logits.
+#     Returns scalar <P, C>. Differentiable w.r.t. B_pred and B_true.
+#     """
+#     if not isinstance(B_pred, torch.Tensor) or not isinstance(B_true, torch.Tensor):
+#         raise TypeError("sinkhorn_loss expects torch.Tensor inputs")
 
-    # Use double precision for numerical stability
-    a = torch.full((n,), 1.0 / max(n, 1), device=device, dtype=dtype)
-    b = torch.full((m_,), 1.0 / max(m_, 1), device=device, dtype=dtype)
+#     # Handle empty inputs
+#     if B_pred.numel() == 0 or B_true.numel() == 0:
+#         return torch.zeros((), device=B_pred.device, dtype=B_pred.dtype)
 
-    # Log kernel with eps protection
-    eps_safe = max(epsilon, 1e-10)
-    logK = -C / eps_safe
+#     # Convert to probabilities and then to double for stability
+#     xP, _ = _as_prob_and_logprob(B_pred)
+#     yP, _ = _as_prob_and_logprob(B_true)
+#     x = xP.to(dtype)
+#     y = yP.to(dtype)
 
-    log_u = torch.zeros(n, device=device, dtype=dtype)
-    log_v = torch.zeros(m_, device=device, dtype=dtype)
+#     # Cost matrix (squared p-distance) - more efficient computation
+#     C = torch.cdist(x, y, p=p).pow(2)
+
+#     # Optional scaling to avoid exp underflow
+#     if scale_cost:
+#         med = _median_safe(C)
+#         if med is not None and med > 0:
+#             C = C / med
+
+#     n, m_ = C.shape
+#     device = C.device
+
+#     # Use double precision for numerical stability
+#     a = torch.full((n,), 1.0 / max(n, 1), device=device, dtype=dtype)
+#     b = torch.full((m_,), 1.0 / max(m_, 1), device=device, dtype=dtype)
+
+#     # Log kernel with eps protection
+#     eps_safe = max(epsilon, 1e-10)
+#     logK = -C / eps_safe
+
+#     log_u = torch.zeros(n, device=device, dtype=dtype)
+#     log_v = torch.zeros(m_, device=device, dtype=dtype)
     
-    # Use log1p for better numerical stability
-    log_a = torch.log(a)
-    log_b = torch.log(b)
+#     # Use log1p for better numerical stability
+#     log_a = torch.log(a)
+#     log_b = torch.log(b)
 
-    # Iterate with better convergence check
-    for it in range(max_iter):
-        log_u_prev = log_u.clone()
+#     # Iterate with better convergence check
+#     for it in range(max_iter):
+#         log_u_prev = log_u.clone()
         
-        # Update u
-        log_u = log_a - torch.logsumexp(logK + log_v[None, :], dim=1)
+#         # Update u
+#         log_u = log_a - torch.logsumexp(logK + log_v[None, :], dim=1)
         
-        # Update v
-        log_v = log_b - torch.logsumexp(logK.T + log_u[None, :], dim=1)
+#         # Update v
+#         log_v = log_b - torch.logsumexp(logK.T + log_u[None, :], dim=1)
 
-        # Check convergence on both u and v
-        u_diff = torch.max(torch.abs(log_u - log_u_prev))
-        if u_diff < tol:
-            break
+#         # Check convergence on both u and v
+#         u_diff = torch.max(torch.abs(log_u - log_u_prev))
+#         if u_diff < tol:
+#             break
 
-    # Transport plan
-    Pmat = torch.exp(logK + log_u[:, None] + log_v[None, :])
+#     # Transport plan
+#     Pmat = torch.exp(logK + log_u[:, None] + log_v[None, :])
 
-    # Compute loss and convert back to original dtype
-    loss = (Pmat * C).sum().to(B_pred.dtype)
-    return loss
+#     # Compute loss and convert back to original dtype
+#     loss = (Pmat * C).sum().to(B_pred.dtype)
+#     return loss
 
 # ---------------------------
 # Composite VAE loss
@@ -252,6 +287,7 @@ def vae_loss(
     lambda_ent=0.1,
     lambda_align=0.0,
     lambda_l1=0.0,
+    ot_batch_size=1000,
     evaluate=False,
 ):
     """
@@ -337,38 +373,44 @@ def vae_loss(
         kl_mix = jsd_loss(B_pseudo_gt, B_pred_pseudo, eps=eps, reduction="mean", base=2)
 
     # 4) Graph smoothness - OPTIMIZED to avoid torch.diag
+    # smooth_loss = _zero()
+    # if lambda_smooth != 0:
+    #     A = None
+    #     B = None
+        
+    #     if not evaluate and has_train:
+    #         mask = masks['train']
+    #         A = A_all[mask][:, mask]
+    #         B = B_all[mask]
+    #     elif evaluate and has_val:
+    #         mask = masks['val']
+    #         A = A_all[mask][:, mask]
+    #         B = B_all[mask]
+
+    #     if A is not None and B is not None and A.numel() > 0 and B.numel() > 0:
+    #         # Accept B as logits or probs
+    #         P, _ = _as_prob_and_logprob(B, eps=eps)
+            
+    #         # Efficient Laplacian computation without constructing full diagonal matrix
+    #         # trace(P^T L P) = trace(P^T D P) - trace(P^T A P)
+    #         #                = sum_i deg_i * P[i]^T P[i] - trace(P^T A P)
+    #         deg = A.sum(dim=1)
+            
+    #         # First term: diagonal contribution
+    #         diag_term = (deg.unsqueeze(1) * P * P).sum()
+            
+    #         # Second term: off-diagonal (adjacency) contribution
+    #         # trace(P^T A P) = sum_ij A[i,j] * P[i]^T P[j]
+    #         AP = A @ P
+    #         adj_term = (P * AP).sum()
+    #         smooth_loss = (diag_term - adj_term) / max(P.size(0), 1)
     smooth_loss = _zero()
     if lambda_smooth != 0:
-        A = None
-        B = None
-        
-        if not evaluate and has_train:
-            mask = masks['train']
-            A = A_all[mask][:, mask]
-            B = B_all[mask]
-        elif evaluate and has_val:
-            mask = masks['val']
-            A = A_all[mask][:, mask]
-            B = B_all[mask]
-
-        if A is not None and B is not None and A.numel() > 0 and B.numel() > 0:
-            # Accept B as logits or probs
-            P, _ = _as_prob_and_logprob(B, eps=eps)
-            
-            # Efficient Laplacian computation without constructing full diagonal matrix
-            # trace(P^T L P) = trace(P^T D P) - trace(P^T A P)
-            #                = sum_i deg_i * P[i]^T P[i] - trace(P^T A P)
-            deg = A.sum(dim=1)
-            
-            # First term: diagonal contribution
-            diag_term = (deg.unsqueeze(1) * P * P).sum()
-            
-            # Second term: off-diagonal (adjacency) contribution
-            # trace(P^T A P) = sum_ij A[i,j] * P[i]^T P[j]
-            AP = A @ P
-            adj_term = (P * AP).sum()
-            
-            smooth_loss = (diag_term - adj_term) / max(P.size(0), 1)
+        smooth_loss = sampled_graph_laplacian_loss(
+            B_all, 
+            A_all, 
+            num_samples=50000
+        )
 
     # 5) Entropy (maximize entropy => subtract in total)
     entropy_loss = _zero()
@@ -382,10 +424,27 @@ def vae_loss(
     align_loss = _zero()
     if lambda_align != 0 and not evaluate and has_pseudo and has_train_real:
         B_real = B_all[masks['train_real']]
-        B_pred_pseudo = B_all[masks['pseudo']]
-        # Only compute if both have samples
-        if B_real.size(0) > 0 and B_pred_pseudo.size(0) > 0:
-            align_loss = sinkhorn_loss(B_pred_pseudo, B_real)
+        # B_pred_pseudo = B_all[masks['pseudo']]
+        # # Only compute if both have samples
+        # if B_real.size(0) > 0 and B_pred_pseudo.size(0) > 0:
+        #     align_loss = sinkhorn_loss(B_pred_pseudo, B_real)
+
+        # OT + Laplacian loss
+        n_nodes = B_all.size(0)
+        B_pseudo_gt_aug = torch.zeros(B_all.shape, dtype=B_all.dtype, device=B_all.device)
+        N_pseudo = B_pseudo_gt.shape[0]
+        if N_pseudo > 0:
+            B_pseudo_gt_aug[-N_pseudo:, :] = B_pseudo_gt
+
+        if 0 < ot_batch_size < n_nodes:
+            sel = torch.randperm(n_nodes, device=B_all.device)[:ot_batch_size]
+            p_sel = B_all[sel]
+            l_sel = B_pseudo_gt_aug[sel].float()
+        else:
+            p_sel = B_all
+            l_sel = B_pseudo_gt_aug.float()
+
+        align_loss = sinkhorn_loss(p_sel, l_sel)
 
     # 7) l1 sparsity on B (optional)
     l1_loss = _zero()

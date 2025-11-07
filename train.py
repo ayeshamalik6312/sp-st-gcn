@@ -1,4 +1,5 @@
 import argparse
+import shutil
 import yaml
 import time
 import random
@@ -33,7 +34,10 @@ def main():
     data_normalization_paras = cfg.get("data_normalization_paras", {})
     integration_for_feature_paras = cfg.get("integration_for_feature_paras", {})
     options = cfg.get("options", {})
-
+    if cfg.get("split_seed") is not None:
+        split_seed = int(cfg["split_seed"])
+    else:
+        split_seed = int(time.time()) % 10000
     outpath = paths.get("output_path", "output")
     os.makedirs(outpath, exist_ok=True)
 
@@ -108,11 +112,6 @@ def main():
     real_indices = np.arange(num_real_spots)
     pseudo_indices = np.arange(num_real_spots, num_total_spots)
 
-    if cfg.get("split_seed") is not None:
-        split_seed = int(cfg["split_seed"])
-    else:
-        split_seed = int(time.time()) % 10000
-
     np.random.seed(split_seed)
     random.seed(split_seed)
     np.random.shuffle(real_indices)
@@ -176,6 +175,11 @@ def main():
         Y_hat_all, mu_all, logvar_all, B_pred_all, *rest = model(
             Y_all, edge_index_combined, edge_weight_combined, X
         )
+
+        # Y_hat_all, mu_all, logvar_all, _, B_pred_all, *rest = model(
+        #     Y_all, edge_index_combined, edge_weight_combined, X
+        # )
+        # B_pred_all = B_pred_all.exp()
 
         losses = vae_loss(
             Y_all=Y_all,
@@ -253,18 +257,18 @@ def main():
             )
 
         # ---------------- Early Stopping ----------------
-        if val_loss < best_val_loss:
-            best_val_loss, patience_counter = val_loss, 0
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"Early stopping at epoch {epoch+1}!")
-                break
+        # if val_loss < best_val_loss:
+        #     best_val_loss, patience_counter = val_loss, 0
+        #     best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        # else:
+        #     patience_counter += 1
+        #     if patience_counter >= patience:
+        #         print(f"Early stopping at epoch {epoch+1}!")
+        #         break
 
 
     # restore best model
-    model.load_state_dict(best_state)
+    # model.load_state_dict(best_state)
 
     # save loss curves
     plt.figure(figsize=(10, 6))
@@ -282,7 +286,7 @@ def main():
     plt.legend()
     plt.grid(True)
     plt.title("Semi-Supervised Training Loss")
-    plt.savefig(os.path.join(cfg["paths"]["output_path"], "loss_curves.svg"), format="svg", dpi=300)
+    plt.savefig(os.path.join(outpath, "loss_curves.svg"), format="svg", dpi=300)
     plt.close()
 
     # ---------------- Test Evaluation ----------------
@@ -298,40 +302,44 @@ def main():
     y_pred = B_pred_all.cpu().numpy()
     y_true = G_all_df[cell_types].values
 
-    # Get the original spot names for the test set using the test_idx array
-    B_df = pd.DataFrame(y_pred, index=G_all_df.index, columns=cell_types)
-    B_df.to_csv(os.path.join(cfg["paths"]["output_path"], "predicted_proportions.csv"))
-
     # Evaluate metrics
     results = evaluate_all(y_true, y_pred)
     print("\nEvaluation Results (Test):")
     for k, v in results.items():
         print(f"{k:12s}: {v:.4f}")
 
+    # append config parameters to results
+    for k, v in cfg.items():
+        results[k] = v
+    results["split_seed"] = split_seed
+
     # append if results already exist
-    metrics_file = os.path.join(cfg["paths"]["output_path"], "metrics.csv")
+    metrics_file = os.path.join(outpath, "metrics.csv")
     if os.path.exists(metrics_file):
         existing_results = pd.read_csv(metrics_file)
         results_df = pd.DataFrame([results])
         results_df = pd.concat([existing_results, results_df], ignore_index=True)
         results_df.to_csv(metrics_file, index=False)
     else:
-        pd.DataFrame([results]).to_csv(os.path.join(cfg["paths"]["output_path"], "metrics.csv"), index=False)
+        pd.DataFrame([results]).to_csv(os.path.join(outpath, "metrics.csv"), index=False)
+
+    if results["Cosine"] > 0.7:
+        # Get the original spot names for the test set using the test_idx array
+        B_df = pd.DataFrame(y_pred, index=G_all_df.index, columns=cell_types)
+        B_df.to_csv(os.path.join(outpath, "predicted_proportions_" + str(split_seed) + ".csv"))
 
 
-    # ---------------- Optional Plots ----------------
-    colors = [plt.cm.tab10(i % 10) for i in range(len(cell_types))]
-    B_pred_real_df = pd.DataFrame(B_pred_all[:num_real_spots].cpu().detach().numpy(), index=Y_real_df.index, columns=cell_types)
+        # ---------------- Optional Plots ---------------- #
+        colors = [plt.cm.tab10(i % 10) for i in range(len(cell_types))]
+        # B_pred_real_df = pd.DataFrame(B_pred_all[:num_real_spots].cpu().detach().numpy(), index=Y_real_df.index, columns=cell_types)
 
-    print("Plotting all real spots...")
-    gt = G_all_df
-    pred = B_pred_real_df
-    draw_pie_hex_grid(gt, cell_types, colors, Y_real_loc_df,
-                    title="Ground Truth (All Real Spots)",
-                    save_path=os.path.join(cfg["paths"]["output_path"], "ground_truth_all.svg"))
-    draw_pie_hex_grid(pred, cell_types, colors, Y_real_loc_df,
-                    title="SP-VAE-GCN (All Real Spots)",
-                    save_path=os.path.join(cfg["paths"]["output_path"], "predicted_all.svg"))
+        print("Plotting all real spots...")
+        draw_pie_hex_grid(G_all_df, cell_types, colors, Y_real_loc_df,
+                        title="Ground Truth (All Real Spots)",
+                        save_path=os.path.join(outpath, "ground_truth_all.svg"), radius=cfg.get("plot_hex_radius", 1))
+        draw_pie_hex_grid(B_df, cell_types, colors, Y_real_loc_df,
+                        title="SP-VAE-GCN (All Real Spots)",
+                        save_path=os.path.join(outpath, "predicted_all_" + str(split_seed) +".svg"), radius=cfg.get("plot_hex_radius", 1))
 
 
 if __name__ == "__main__":

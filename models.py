@@ -35,22 +35,25 @@ class Decoder(nn.Module):
             self.fc1 = nn.Linear(lat_dim, hidden_dim)
             self.fc2 = nn.Linear(hidden_dim, n_celltypes)
             
-    def forward(self, Z, edge_index=None, edge_weight=None):
+    def forward(self, Z, edge_index=None, edge_weight=None, return_logits=False):
         H = self.dp(Z)
         
         if self.use_gcn:
             H = F.relu(self.conv1(H, edge_index, edge_weight))
-            B = self.conv2(H, edge_index, edge_weight)
+            logits = self.conv2(H, edge_index, edge_weight)
         else:
             H = F.relu(self.fc1(H))
-            B = self.fc2(H)
-            
-        return F.softmax(B / self.tau, dim=1)
+            logits = self.fc2(H)
+        
+        if return_logits:
+            return logits
+        return F.softmax(logits / self.tau, dim=1)
 
 
 class SpatialVAE(nn.Module):
     def __init__(self, in_dim, hid_dim, lat_dim, n_celltypes, tau=1.0, drop=0.2, use_gcn_decoder=False):
         super().__init__()
+        self.tau = tau
         self.encoder = GraphEncoder(in_dim, hid_dim, lat_dim, dropout=drop)
         self.decoder = Decoder(lat_dim, hid_dim, n_celltypes, tau, drop, use_gcn=use_gcn_decoder)
         
@@ -64,10 +67,19 @@ class SpatialVAE(nn.Module):
         mu, logvar = self.encoder(Y, edge_index, edge_weight)
         Z = self.reparameterize(mu, logvar)
         
-        B = self.decoder(Z, edge_index, edge_weight)
+        logits = self.decoder(Z, edge_index, edge_weight, return_logits=True)
+        B = F.softmax(logits / self.tau, dim=1)
         Y_hat = B @ X_ref
+        B_log = F.log_softmax(B / self.tau, dim=1)
         
-        return Y_hat, mu, logvar, B
+        return Y_hat, mu, logvar, B, B_log
+
+        # logits = self.decoder(Z, edge_index, edge_weight)
+        # log_probs = F.log_softmax(logits / self.tau, dim=1)
+        # B = torch.softmax(logits / self.tau, dim=1)
+        # Y_hat = B @ X_ref
+
+        # return Y_hat, mu, logvar, B, log_probs
     
     def encode(self, Y, edge_index, edge_weight=None):
         """Get latent representation without sampling"""

@@ -1,11 +1,19 @@
 paths:
-  sc_path: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data"     # e.g., "./seqfish/sc_data"
-  ST_path: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"    # e.g., "./seqfish/ST_data"
-  output_path: "./output/seqFISH+/"                               # e.g., "./output"
+  # sc_path: "/data/alif/sp_vae_gcn/datasets/seqFISH+/sc_data"     # e.g., "./seqfish/sc_data"
+  # ST_path: "/data/alif/sp_vae_gcn/datasets/seqFISH+/ST_data/"    # e.g., "./seqfish/ST_data"
+  # output_path: "./output/seqFISH+/"                               # e.g., "./output"
 
   # ST_path: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/ST_data/"
   # sc_path: "/data/alif/sp_vae_gcn/datasets/seqFISH/ours/sc_data/"
   # output_path: "./output/seqFISH/"
+
+  # ST_path: "/data/alif/sp_vae_gcn/datasets/STEM/ours/E2z2/ST_data/"
+  # sc_path: "/data/alif/sp_vae_gcn/datasets/STEM/ours/E2z2/sc_data/"
+  # output_path: "./output/STEM/E2z2/"
+
+  ST_path: "/data/alif/sp_vae_gcn/datasets/STEM/ours/E3z2/ST_data/"
+  sc_path: "/data/alif/sp_vae_gcn/datasets/STEM/ours/E3z2/sc_data/"
+  output_path: "./output/STEM/E3z2/"
 
   # ST_path: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/ST_data/"
   # sc_path: "/data/alif/sp_vae_gcn/datasets/MERFISH/ours/sc_data/"
@@ -28,7 +36,7 @@ find_marker_genes_paras:
   max_between_group_fraction_threshold: null
 
 pseudo_spot_simulation_paras:
-  spot_num: 1000             # set higher (e.g., 30000) for full runs
+  spot_num: 2000             # set higher (e.g., 30000) for full runs
   min_cell_num_in_spot: 4
   max_cell_num_in_spot: 8
   generation_method: "celltype"   # "cell" or "celltype"
@@ -48,21 +56,12 @@ integration_for_feature_paras:
 # Top-level options for preprocess_SPGVAE
 options:
   use_marker_genes: true
-  external_genes: false
-  generate_new_pseudo_spots: true
+  external_genes: true
+  generate_new_pseudo_spots: false
   n_jobs: -1
   GCN_device: "GPU"      # "GPU" or "CPU"
 
 # # graph params
-# graph:
-#   alpha_spatial: 5
-#   alpha_expr_real: 3
-#   alpha_expr_pseudo: 2
-#   k_real: 10
-#   k_pseudo: 10
-#   expr_thresh: 0.0   # 0 → keep all positive sims
-#   adjacency_sigma: 2.0
-#   adjacency_threshold: 1e-2
 graph:
   alpha_spatial: 1.0
   alpha_expr_real: 1.0
@@ -80,7 +79,7 @@ graph:
 
 # data split
 split_seed: null
-val_size: 0.1
+val_size: 0.01
 
 
 # model
@@ -91,16 +90,18 @@ dropout_rate: 0.2
 
 
 # training
-n_epochs: 500
+n_epochs: 1000
 lr: 1e-4
 l2_lambda: 1e-4
 patience: 30
 
 # loss weights
-loss_recon: 0.1
-loss_kl_lat: 0.01
-loss_kl_mix: 2.0
-loss_smooth: 0.1
-loss_ent: -0.2
+loss_recon: 0.0
+loss_kl_lat: 0.0
+loss_kl_mix: 5.0
+loss_smooth: 0.01
+loss_ent: -0.001
 loss_align: 0.0       # >0 enables real↔pseudo alignment
 loss_l1: 0.0          # <— NEW (weight for L1 sparsity loss)
+
+plot_hex_radius: 0.1

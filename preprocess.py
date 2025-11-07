@@ -392,7 +392,8 @@ def preprocess_SPGVAE(paths,
     sc_adata.obs['cell_type'].value_counts()
     if use_marker_genes == True:
         if external_genes == True:
-            with open(sc_path+"/marker_genes.tsv", 'r') as f:
+            # with open(output_path+"/marker_genes.tsv", 'r') as f:
+            with open("/data/alif/sp_vae_gcn/code_v4/output/seqFISH/marker_genes.tsv", 'r') as f:
                 selected_genes = [line.rstrip('\n') for line in f]
         else:
             selected_genes, cell_type_marker_genes = find_marker_genes(sc_adata,
